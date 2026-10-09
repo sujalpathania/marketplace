@@ -36,7 +36,7 @@ import { ListingService } from '../../core/services/listing.service';
 
           <div class="form-row">
             <div class="form-group">
-              <label for="price">Price ($) *</label>
+              <label for="price">Price *</label>
               <input
                 type="number"
                 id="price"
@@ -45,7 +45,7 @@ import { ListingService } from '../../core/services/listing.service';
                 required
                 min="0.01"
                 step="0.01"
-                placeholder="45.00"
+                placeholder="₹45.00"
                 class="form-control"
               />
             </div>
@@ -61,6 +61,19 @@ import { ListingService } from '../../core/services/listing.service';
                 <option value="Other">Other</option>
               </select>
             </div>
+          </div>
+
+          <div class="form-group" *ngIf="category === 'Other'">
+            <label for="otherCategory">Please specify category *</label>
+            <input
+              type="text"
+              id="otherCategory"
+              name="otherCategory"
+              [(ngModel)]="otherCategory"
+              required
+              placeholder="e.g., Sports Equipment"
+              class="form-control"
+            />
           </div>
 
           <div class="form-group">
@@ -206,6 +219,7 @@ export class ListingCreateComponent {
   title = '';
   price: number | null = null;
   category = '';
+  otherCategory = '';
   condition = '';
   description = '';
   selectedFile: File | null = null;
@@ -222,7 +236,8 @@ export class ListingCreateComponent {
   }
 
   onSubmit(): void {
-    if (!this.title || !this.price || !this.category || !this.condition || !this.description) return;
+    const finalCategory = this.category === 'Other' ? this.otherCategory : this.category;
+    if (!this.title || !this.price || !finalCategory || !this.condition || !this.description) return;
 
     this.loading = true;
     this.error = '';
@@ -230,7 +245,7 @@ export class ListingCreateComponent {
     const formData = new FormData();
     formData.append('title', this.title);
     formData.append('price', this.price.toString());
-    formData.append('category', this.category);
+    formData.append('category', finalCategory);
     formData.append('condition', this.condition);
     formData.append('description', this.description);
 

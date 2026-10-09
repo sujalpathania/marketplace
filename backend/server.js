@@ -7,6 +7,7 @@ const { initDb } = require('./config/db');
 const authRoutes = require('./routes/auth');
 const listingRoutes = require('./routes/listings');
 const orderRoutes = require('./routes/orders');
+const photoRequestRoutes = require('./routes/photo-requests');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,6 +24,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/auth', authRoutes);
 app.use('/api/listings', listingRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/photos', photoRequestRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -5,6 +5,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ListingService } from '../../core/services/listing.service';
 import { OrderService } from '../../core/services/order.service';
 import { AuthService } from '../../core/services/auth.service';
+import { PhotoRequestService, PhotoRequest, ListingPhoto } from '../../core/services/photo-request.service';
 import { Listing } from '../../models/listing.model';
 
 @Component({
@@ -59,6 +60,48 @@ import { Listing } from '../../models/listing.model';
             <p>{{ listing.description }}</p>
           </div>
 
+          <!-- ─── Extra Photos Gallery ─── -->
+          <div *ngIf="extraPhotos.length > 0" class="extra-photos-section">
+            <h4>📸 Additional Photos</h4>
+            <div class="extra-photos-grid">
+              <div *ngFor="let photo of extraPhotos" class="extra-photo-card" (click)="openLightbox(photo.photoUrl)">
+                <img [src]="getImageUrl(photo.photoUrl)" alt="Additional photo" />
+              </div>
+            </div>
+          </div>
+
+          <!-- ─── Request More Photos ─── -->
+          <div *ngIf="!isSeller() && listing.status === 'Available' && authService.isLoggedIn()" class="photo-request-section">
+            <div *ngIf="!hasActivePhotoRequest && !photoRequestSuccess" class="request-photos-box">
+              <h4>📷 Need more photos?</h4>
+              <p class="request-hint">Ask the seller for additional images of this item</p>
+              <textarea
+                [(ngModel)]="photoRequestMessage"
+                placeholder="e.g. Can you send a close-up of the cover / back side?"
+                class="request-textarea"
+                rows="2"
+              ></textarea>
+              <button
+                (click)="sendPhotoRequest()"
+                [disabled]="sendingPhotoRequest"
+                class="request-btn"
+                id="request-photos-btn"
+              >
+                <span *ngIf="!sendingPhotoRequest">📨 Request More Photos</span>
+                <span *ngIf="sendingPhotoRequest">Sending...</span>
+              </button>
+            </div>
+            <div *ngIf="hasActivePhotoRequest && !photoRequestSuccess" class="request-pending-badge">
+              ⏳ Photo request sent — waiting for seller to upload.
+            </div>
+            <div *ngIf="photoRequestSuccess" class="alert success-alert photo-req-success">
+              ✅ {{ photoRequestSuccess }}
+            </div>
+            <div *ngIf="photoRequestError" class="alert error-alert">
+              {{ photoRequestError }}
+            </div>
+          </div>
+
           <!-- Alerts -->
           <div *ngIf="successMessage" class="alert success-alert">
             🎉 {{ successMessage }}
@@ -104,18 +147,18 @@ import { Listing } from '../../models/listing.model';
       </div>
     </div>
 
-    <!-- ────── Address Modal ────── -->
+    <!-- ────── Checkout Modal ────── -->
     <div class="modal-backdrop" *ngIf="showAddressModal" (click)="closeModalOnBackdrop($event)">
       <div class="modal-card" id="address-modal">
         <div class="modal-header">
           <div>
-            <h2>Delivery Address</h2>
-            <p>Enter where you'd like this item delivered on campus</p>
+            <h2>{{ checkoutStep === 'address' ? 'Delivery Address' : 'Payment Details' }}</h2>
+            <p>{{ checkoutStep === 'address' ? 'Enter where you\\'d like this item delivered on campus' : 'Securely complete your purchase' }}</p>
           </div>
           <button class="modal-close" (click)="closeModal()">✕</button>
         </div>
 
-        <form (ngSubmit)="confirmOrder()" #addrForm="ngForm" class="addr-form">
+        <form (ngSubmit)="goToPayment()" #addrForm="ngForm" class="addr-form" *ngIf="checkoutStep === 'address'">
           <div class="form-row">
             <div class="form-group">
               <label for="addr-name">Full Name</label>
@@ -174,12 +217,62 @@ import { Listing } from '../../models/listing.model';
 
           <div class="modal-actions">
             <button type="button" class="cancel-btn" (click)="closeModal()">Cancel</button>
-            <button type="submit" class="confirm-btn" [disabled]="addrForm.invalid || buying" id="confirm-order-btn">
-              <span *ngIf="!buying">✅ Confirm Order</span>
-              <span *ngIf="buying">Placing Order...</span>
+            <button type="submit" class="confirm-btn" [disabled]="addrForm.invalid" id="next-btn">
+              Next →
+            </button>
+         </div>
+        </form>
+
+        <form (ngSubmit)="confirmOrder()" #paymentForm="ngForm" class="addr-form" *ngIf="checkoutStep === 'payment'" autocomplete="off">
+          <div class="form-group">
+            <label for="card-num">Card Number</label>
+            <div style="position:relative">
+              <input id="card-num" name="cardNumber" [(ngModel)]="paymentDetails.cardNumber" (input)="sanitizeCard($event)" required pattern="^[0-9 ]{15,19}$" maxlength="19" placeholder="0000 0000 0000 0000" class="form-control" style="padding-left: 2.5rem;" autocomplete="off" />
+              <span style="position:absolute; left: 0.8rem; top: 50%; transform: translateY(-50%); font-size: 1.2rem;">💳</span>
+            </div>
+            <div class="field-error" *ngIf="cardNumberError">⚠️ Only numbers are allowed</div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Expiry Month</label>
+              <select id="expiry-month" name="expiryMonth" [(ngModel)]="paymentDetails.expiryMonth" required class="form-control">
+                <option value="" disabled>Month</option>
+                <option *ngFor="let m of months" [value]="m">{{ m }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Expiry Year</label>
+              <select id="expiry-year" name="expiryYear" [(ngModel)]="paymentDetails.expiryYear" required class="form-control">
+                <option value="" disabled>Year</option>
+                <option *ngFor="let y of years" [value]="y">{{ y }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="cvv">CVV</label>
+              <input type="password" id="cvv" name="cvv" [(ngModel)]="paymentDetails.cvv" (input)="sanitizeCvv($event)" required pattern="^[0-9]{3,4}$" maxlength="4" placeholder="123" class="form-control" autocomplete="new-password" />
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="name-on-card">Name on Card</label>
+            <input id="name-on-card" name="nameOnCard" [(ngModel)]="paymentDetails.nameOnCard" required placeholder="John Doe" class="form-control" autocomplete="off" />
+          </div>
+
+          <div class="order-summary">
+            <div class="summary-row total-row">
+              <span>Total to Pay</span><span class="summary-price">₹{{ listing?.price | number:'1.2-2' }}</span>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="cancel-btn" (click)="checkoutStep = 'address'">← Back</button>
+            <button type="submit" class="confirm-btn" [disabled]="paymentForm.invalid || buying" id="confirm-order-btn">
+              <span *ngIf="!buying">Pay ₹{{ listing?.price | number:'1.2-2' }}</span>
+              <span *ngIf="buying">Processing...</span>
             </button>
           </div>
         </form>
+      </div>
     </div>
 
     <!-- ────── Delete Confirmation Modal ────── -->
@@ -207,6 +300,12 @@ import { Listing } from '../../models/listing.model';
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- ────── Photo Lightbox ────── -->
+    <div class="lightbox-overlay" *ngIf="lightboxUrl" (click)="closeLightbox()">
+      <button class="lightbox-close" (click)="closeLightbox()">✕</button>
+      <img [src]="getImageUrl(lightboxUrl)" alt="Full-size photo" />
     </div>
   `,
   styles: [`
@@ -501,7 +600,17 @@ import { Listing } from '../../models/listing.model';
       grid-template-columns: 1fr 1fr;
       gap: 0.75rem;
     }
+    .form-row:has(select) {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
     .form-row .pin-group { grid-column: span 1; }
+    .field-error {
+      color: #f87171;
+      font-size: 0.78rem;
+      font-weight: 600;
+      margin-top: 0.35rem;
+      animation: fadeIn 0.2s ease;
+    }
     @media (max-width: 500px) {
       .form-row { grid-template-columns: 1fr; }
     }
@@ -597,8 +706,114 @@ import { Listing } from '../../models/listing.model';
       box-shadow: 0 10px 28px rgba(16,185,129,0.55);
     }
     .confirm-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
-  `]
-})
+
+    /* ─── Extra Photos ─── */
+    .extra-photos-section { margin-top: 1.5rem; }
+    .extra-photos-section h4 { color: #e2e8f0; margin: 0 0 0.75rem 0; font-size: 1rem; }
+    .extra-photos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      gap: 0.6rem;
+    }
+    .extra-photo-card {
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.08);
+      transition: transform 0.2s, box-shadow 0.2s;
+      aspect-ratio: 1;
+    }
+    .extra-photo-card:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 16px rgba(99,102,241,0.35);
+    }
+    .extra-photo-card img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* ─── Photo Request ─── */
+    .photo-request-section { margin-top: 1.5rem; }
+    .request-photos-box {
+      background: rgba(99,102,241,0.08);
+      border: 1px dashed rgba(99,102,241,0.4);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+    .request-photos-box h4 { color: #e2e8f0; margin: 0 0 0.25rem 0; }
+    .request-hint { color: #94a3b8; font-size: 0.82rem; margin: 0 0 0.75rem 0; }
+    .request-textarea {
+      width: 100%;
+      background: rgba(15,23,42,0.6);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-family: inherit;
+      font-size: 0.88rem;
+      padding: 0.6rem 0.8rem;
+      resize: vertical;
+      margin-bottom: 0.75rem;
+      box-sizing: border-box;
+    }
+    .request-textarea:focus { outline: none; border-color: #6366f1; }
+    .request-btn {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.6rem 1.2rem;
+      font-weight: 700;
+      font-family: inherit;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: all 0.25s;
+    }
+    .request-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(99,102,241,0.45);
+    }
+    .request-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .request-pending-badge {
+      background: rgba(234,179,8,0.12);
+      border: 1px solid rgba(234,179,8,0.35);
+      border-radius: 10px;
+      padding: 0.8rem 1rem;
+      color: #fbbf24;
+      font-weight: 600;
+      font-size: 0.88rem;
+    }
+    .photo-req-success { margin-top: 0; }
+
+    /* ─── Lightbox ─── */
+    .lightbox-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .lightbox-overlay img {
+      max-width: 90vw;
+      max-height: 85vh;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    }
+    .lightbox-close {
+      position: absolute;
+      top: 1.5rem;
+      right: 2rem;
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: #fff;
+      font-size: 1.8rem;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .lightbox-close:hover { background: rgba(255,255,255,0.3); }
+   `]
+    })
 export class ListingDetailComponent implements OnInit {
   listing: Listing | null = null;
   loading = true;
@@ -611,21 +826,46 @@ export class ListingDetailComponent implements OnInit {
 
   // Modals state
   showAddressModal = false;
+  checkoutStep: 'address' | 'payment' = 'address';
   showDeleteModal = false;
   confirmedAddress: any = null;
   address = { name: '', phone: '', line1: '', line2: '', city: '', state: '', pin: '' };
+  paymentDetails = { cardNumber: '', expiryMonth: '', expiryYear: '', cvv: '', nameOnCard: '' };
+  cardNumberError = false;
+  months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+  years: string[] = [];
+
+  // Photo request state
+  extraPhotos: ListingPhoto[] = [];
+  photoRequests: PhotoRequest[] = [];
+  hasActivePhotoRequest = false;
+  photoRequestMessage = '';
+  sendingPhotoRequest = false;
+  photoRequestSuccess = '';
+  photoRequestError = '';
+  lightboxUrl: string | null = null;
 
   constructor(
     private route: ActivatedRoute,
     private router: Router,
     private listingService: ListingService,
     private orderService: OrderService,
-    public authService: AuthService
+    public authService: AuthService,
+    private photoRequestService: PhotoRequestService
   ) {}
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id');
-    if (id) this.loadDetail(id);
+    if (id) {
+      this.loadDetail(id);
+      this.loadExtraPhotos(id);
+      this.loadPhotoRequests(id);
+    }
+    // Build next 10 years for expiry dropdown
+    const currentYear = new Date().getFullYear();
+    for (let i = 0; i < 10; i++) {
+      this.years.push(String(currentYear + i).slice(-2));
+    }
   }
 
   loadDetail(id: string): void {
@@ -641,6 +881,7 @@ export class ListingDetailComponent implements OnInit {
     // Pre-fill name from logged in user
     const user = this.authService.currentUser();
     if (user) this.address.name = user.fullName || '';
+    this.checkoutStep = 'address';
     this.showAddressModal = true;
     document.body.style.overflow = 'hidden';
   }
@@ -656,6 +897,27 @@ export class ListingDetailComponent implements OnInit {
     }
   }
 
+  goToPayment(): void {
+    this.checkoutStep = 'payment';
+  }
+
+  sanitizeCard(event: any): void {
+    const raw = event.target.value;
+    const cleaned = raw.replace(/[^0-9 ]/g, '');
+    if (raw !== cleaned) {
+      this.cardNumberError = true;
+      setTimeout(() => this.cardNumberError = false, 2000);
+    }
+    this.paymentDetails.cardNumber = cleaned;
+    event.target.value = cleaned;
+  }
+
+  sanitizeCvv(event: any): void {
+    const cleaned = event.target.value.replace(/[^0-9]/g, '');
+    this.paymentDetails.cvv = cleaned;
+    event.target.value = cleaned;
+  }
+
   confirmOrder(): void {
     if (!this.listing) return;
     this.buying = true;
@@ -667,7 +929,14 @@ export class ListingDetailComponent implements OnInit {
         this.showAddressModal = false;
         document.body.style.overflow = '';
         this.confirmedAddress = { ...this.address };
-        this.successMessage = `Order placed! The seller will contact you at your delivery address.`;
+        
+        // Estimate delivery logic: 2-3 days from now
+        const deliveryDate = new Date();
+        deliveryDate.setDate(deliveryDate.getDate() + 2);
+        const options: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+        const formattedDate = deliveryDate.toLocaleDateString('en-US', options);
+
+        this.successMessage = `Payment successful! Estimated time of delivery: ${formattedDate}.`;
         if (this.listing) this.listing.status = 'Sold';
       },
       error: (err) => {
@@ -725,5 +994,62 @@ export class ListingDetailComponent implements OnInit {
     if (!url) return 'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=600&q=80';
     if (url.startsWith('http')) return url;
     return `http://localhost:5000${url}`;
+  }
+
+  // ──── Photo Request Methods ────
+
+  loadExtraPhotos(listingId: string): void {
+    this.photoRequestService.getListingPhotos(listingId).subscribe({
+      next: (photos) => { this.extraPhotos = photos; },
+      error: () => { /* silently fail */ }
+    });
+  }
+
+  loadPhotoRequests(listingId: string): void {
+    this.photoRequestService.getRequestsForListing(listingId).subscribe({
+      next: (requests) => {
+        this.photoRequests = requests;
+        const currentUser = this.authService.currentUser();
+        if (currentUser) {
+          this.hasActivePhotoRequest = requests.some(
+            r => r.buyerId === String(currentUser.id) && r.status === 'Pending'
+          );
+        }
+      },
+      error: () => { /* silently fail */ }
+    });
+  }
+
+  sendPhotoRequest(): void {
+    if (!this.listing) return;
+    this.sendingPhotoRequest = true;
+    this.photoRequestError = '';
+    this.photoRequestSuccess = '';
+
+    this.photoRequestService.requestPhotos(
+      this.listing.id,
+      this.photoRequestMessage || 'Please share more photos of this item.'
+    ).subscribe({
+      next: (res) => {
+        this.sendingPhotoRequest = false;
+        this.photoRequestSuccess = res.message;
+        this.hasActivePhotoRequest = true;
+        this.photoRequestMessage = '';
+      },
+      error: (err) => {
+        this.sendingPhotoRequest = false;
+        this.photoRequestError = err.error?.error || 'Failed to send photo request.';
+      }
+    });
+  }
+
+  openLightbox(url: string): void {
+    this.lightboxUrl = url;
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeLightbox(): void {
+    this.lightboxUrl = null;
+    document.body.style.overflow = '';
   }
 }

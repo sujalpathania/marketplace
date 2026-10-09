@@ -74,9 +74,30 @@ const initDb = async () => {
       );
     `);
 
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS photo_requests (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        listing_id UUID REFERENCES listings(id) ON DELETE CASCADE,
+        buyer_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        message TEXT,
+        status VARCHAR(20) DEFAULT 'Pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS listing_photos (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        listing_id UUID REFERENCES listings(id) ON DELETE CASCADE,
+        request_id UUID REFERENCES photo_requests(id) ON DELETE CASCADE,
+        photo_url TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     console.log('PostgreSQL database connected and tables initialized successfully.');
   } catch (err) {
-    console.warn('PostgreSQL connection failed:', err.message);
+    // console.warn('PostgreSQL connection failed:', err.message);
     console.log('Falling back to SQLite database for reliable execution...');
     usePg = false;
 
@@ -119,6 +140,27 @@ const initDb = async () => {
         seller_id TEXT NOT NULL,
         total_price REAL NOT NULL,
         status TEXT DEFAULT 'Confirmed',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await runSqlite(`
+      CREATE TABLE IF NOT EXISTS photo_requests (
+        id TEXT PRIMARY KEY,
+        listing_id TEXT NOT NULL,
+        buyer_id TEXT NOT NULL,
+        message TEXT,
+        status TEXT DEFAULT 'Pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await runSqlite(`
+      CREATE TABLE IF NOT EXISTS listing_photos (
+        id TEXT PRIMARY KEY,
+        listing_id TEXT NOT NULL,
+        request_id TEXT,
+        photo_url TEXT NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -176,6 +218,14 @@ const query = async (text, params = []) => {
         sqliteText = sqliteText.replace('INSERT INTO orders (', 'INSERT INTO orders (id, ');
         sqliteText = sqliteText.replace(/VALUES\s*\(/i, 'VALUES (?, ');
         sqliteParams.unshift(newId);
+      } else if (sqliteText.includes('INSERT INTO photo_requests (')) {
+        sqliteText = sqliteText.replace('INSERT INTO photo_requests (', 'INSERT INTO photo_requests (id, ');
+        sqliteText = sqliteText.replace(/VALUES\s*\(/i, 'VALUES (?, ');
+        sqliteParams.unshift(newId);
+      } else if (sqliteText.includes('INSERT INTO listing_photos (')) {
+        sqliteText = sqliteText.replace('INSERT INTO listing_photos (', 'INSERT INTO listing_photos (id, ');
+        sqliteText = sqliteText.replace(/VALUES\s*\(/i, 'VALUES (?, ');
+        sqliteParams.unshift(newId);
       }
     }
 
@@ -188,6 +238,8 @@ const query = async (text, params = []) => {
       let tableName = 'users';
       if (/INTO listings/i.test(text)) tableName = 'listings';
       if (/INTO orders/i.test(text)) tableName = 'orders';
+      if (/INTO photo_requests/i.test(text)) tableName = 'photo_requests';
+      if (/INTO listing_photos/i.test(text)) tableName = 'listing_photos';
       const rows = await getSqliteAll(`SELECT * FROM ${tableName} WHERE id = ?`, [newId]);
       return { rows };
     }
@@ -202,7 +254,7 @@ const query = async (text, params = []) => {
       sqliteText.trim().toUpperCase().startsWith('ROLLBACK')) {
     await runSqlite(sqliteText);
     return { rows: [] };
-  }
+  }  
 
   const rows = await getSqliteAll(sqliteText, sqliteParams);
   return { rows };

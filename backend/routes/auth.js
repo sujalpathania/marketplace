@@ -9,29 +9,10 @@ const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 
-// ─── Multer for student ID photo uploads ──────────────────────────────────
-const idPhotosDir = path.join(__dirname, '../uploads/id-photos');
-if (!fs.existsSync(idPhotosDir)) fs.mkdirSync(idPhotosDir, { recursive: true });
 
-const idPhotoStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, idPhotosDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `id-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
-  }
-});
-
-const uploadIdPhoto = multer({
-  storage: idPhotoStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Only image files are allowed'));
-  }
-});
 
 // ─── 1. Register a student ────────────────────────────────────────────────
-router.post('/register', uploadIdPhoto.single('studentIdPhoto'), async (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     const { fullName, email, password, studentId, collegeName } = req.body;
 
@@ -41,7 +22,6 @@ router.post('/register', uploadIdPhoto.single('studentIdPhoto'), async (req, res
 
     const finalCollege = collegeName || 'State University';
     const finalStudentId = studentId || ('STU' + Math.floor(100000 + Math.random() * 900000));
-    const studentIdPhoto = req.file ? `/uploads/id-photos/${req.file.filename}` : '/uploads/id-photos/default-id.png';
 
     // Check if user exists
     const existingUser = await db.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
@@ -53,10 +33,10 @@ router.post('/register', uploadIdPhoto.single('studentIdPhoto'), async (req, res
     const passwordHash = await bcrypt.hash(password, salt);
 
     const result = await db.query(
-      `INSERT INTO users (full_name, email, password_hash, student_id, college_name, student_id_photo)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, full_name, email, student_id, college_name, student_id_photo, created_at`,
-      [fullName.trim(), email.toLowerCase().trim(), passwordHash, finalStudentId.trim(), finalCollege.trim(), studentIdPhoto]
+      `INSERT INTO users (full_name, email, password_hash, student_id, college_name)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, full_name, email, student_id, college_name, created_at`,
+      [fullName.trim(), email.toLowerCase().trim(), passwordHash, finalStudentId.trim(), finalCollege.trim()]
     );
 
     const user = result.rows[0];
@@ -74,8 +54,7 @@ router.post('/register', uploadIdPhoto.single('studentIdPhoto'), async (req, res
         fullName: user.full_name,
         email: user.email,
         studentId: user.student_id,
-        collegeName: user.college_name,
-        studentIdPhoto: user.student_id_photo
+        collegeName: user.college_name
       }
     });
   } catch (err) {
@@ -118,8 +97,7 @@ router.post('/login', async (req, res) => {
         fullName: user.full_name,
         email: user.email,
         studentId: user.student_id,
-        collegeName: user.college_name,
-        studentIdPhoto: user.student_id_photo
+        collegeName: user.college_name
       }
     });
   } catch (err) {
@@ -132,7 +110,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT id, full_name, email, student_id, college_name, student_id_photo, created_at FROM users WHERE id = $1',
+      'SELECT id, full_name, email, student_id, college_name, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
     if (result.rows.length === 0) {
@@ -145,7 +123,6 @@ router.get('/me', authMiddleware, async (req, res) => {
       email: u.email,
       studentId: u.student_id,
       collegeName: u.college_name,
-      studentIdPhoto: u.student_id_photo,
       createdAt: u.created_at
     });
   } catch (err) {

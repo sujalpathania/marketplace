@@ -74,27 +74,7 @@ import { AuthService } from '../../core/services/auth.service';
             </div>
           </div>
 
-          <!-- Student ID Photo Upload -->
-          <div class="form-group">
-            <label>Student ID Card Photo <span class="req-badge">Required</span></label>
-            <div class="upload-zone" [class.has-file]="photoPreview" (click)="photoInput.click()" (dragover)="$event.preventDefault()" (drop)="onDrop($event)">
-              <input #photoInput type="file" id="studentIdPhoto" name="studentIdPhoto" accept="image/*"
-                (change)="onPhotoSelected($event)" style="display:none" />
 
-              <div *ngIf="!photoPreview" class="upload-placeholder">
-                <span class="upload-icon">🪪</span>
-                <p class="upload-label">Click or drag & drop your ID card photo</p>
-                <p class="upload-hint">JPG, PNG or WEBP · Max 5MB</p>
-              </div>
-
-              <div *ngIf="photoPreview" class="photo-preview-wrap">
-                <img [src]="photoPreview" alt="ID Preview" class="photo-preview" />
-                <div class="photo-overlay">
-                  <span class="photo-change">📷 Change Photo</span>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <!-- Password -->
           <div class="form-group">
@@ -108,15 +88,12 @@ import { AuthService } from '../../core/services/auth.service';
             </div>
           </div>
 
-          <!-- Verification Note -->
-          <div class="verify-note">
-            <span>🔒</span>
-            <span>Your ID photo is used for student verification only and kept secure.</span>
-          </div>
+
 
           <button type="submit" id="register-submit"
-            [disabled]="registerForm.invalid || !studentIdPhotoFile || loading"
+            [disabled]="registerForm.invalid || loading"
             class="submit-btn">
+            
             <span *ngIf="!loading">Create Verified Account →</span>
             <span *ngIf="loading">Creating Account...</span>
           </button>
@@ -218,77 +195,7 @@ import { AuthService } from '../../core/services/auth.service';
     }
     .form-control::placeholder { color: #334155; }
 
-    /* ── Upload Zone ── */
-    .upload-zone {
-      border: 2px dashed rgba(99,102,241,0.3);
-      border-radius: 12px;
-      background: rgba(9,13,26,0.5);
-      cursor: pointer;
-      transition: all 0.25s;
-      overflow: hidden;
-      min-height: 110px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .upload-zone:hover {
-      border-color: rgba(99,102,241,0.65);
-      background: rgba(99,102,241,0.06);
-    }
-    .upload-zone.has-file { border-style: solid; border-color: rgba(99,102,241,0.4); }
-    .upload-placeholder {
-      text-align: center;
-      padding: 1.5rem 1rem;
-      pointer-events: none;
-    }
-    .upload-icon { font-size: 2rem; display: block; margin-bottom: 0.5rem; }
-    .upload-label { color: #94a3b8; font-size: 0.88rem; font-weight: 600; margin: 0 0 0.25rem; }
-    .upload-hint { color: #475569; font-size: 0.75rem; margin: 0; }
 
-    .photo-preview-wrap {
-      position: relative;
-      width: 100%;
-      height: 150px;
-    }
-    .photo-preview {
-      width: 100%; height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .photo-overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(0,0,0,0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0;
-      transition: opacity 0.2s;
-    }
-    .upload-zone:hover .photo-overlay { opacity: 1; }
-    .photo-change {
-      color: #fff;
-      font-weight: 700;
-      font-size: 0.9rem;
-      background: rgba(99,102,241,0.8);
-      padding: 0.5rem 1rem;
-      border-radius: 999px;
-    }
-
-    /* Verification note */
-    .verify-note {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-      background: rgba(99,102,241,0.08);
-      border: 1px solid rgba(99,102,241,0.2);
-      border-radius: 10px;
-      padding: 0.75rem 1rem;
-      margin-bottom: 1rem;
-      color: #94a3b8;
-      font-size: 0.8rem;
-      line-height: 1.5;
-    }
 
     .submit-btn {
       width: 100%;
@@ -347,41 +254,14 @@ export class RegisterComponent {
   collegeName = '';
   studentId = '';
   password = '';
-  studentIdPhotoFile: File | null = null;
-  photoPreview: string | null = null;
   loading = false;
   error = '';
 
   constructor(private authService: AuthService, private router: Router) {}
 
-  onPhotoSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    if (input.files && input.files[0]) {
-      this.setPhoto(input.files[0]);
-    }
-  }
-
-  onDrop(event: DragEvent): void {
-    event.preventDefault();
-    const file = event.dataTransfer?.files[0];
-    if (file && file.type.startsWith('image/')) {
-      this.setPhoto(file);
-    }
-  }
-
-  private setPhoto(file: File): void {
-    this.studentIdPhotoFile = file;
-    const reader = new FileReader();
-    reader.onload = (e) => { this.photoPreview = e.target?.result as string; };
-    reader.readAsDataURL(file);
-  }
-
   onSubmit(): void {
     if (!this.fullName || !this.email || !this.password || !this.studentId || !this.collegeName) return;
-    if (!this.studentIdPhotoFile) {
-      this.error = 'Please upload a photo of your student ID card.';
-      return;
-    }
+
 
     this.loading = true;
     this.error = '';
@@ -391,8 +271,7 @@ export class RegisterComponent {
       email: this.email,
       password: this.password,
       studentId: this.studentId,
-      collegeName: this.collegeName,
-      studentIdPhoto: this.studentIdPhotoFile
+      collegeName: this.collegeName
     }).subscribe({
       next: () => { this.loading = false; this.router.navigate(['/listings']); },
       error: (err) => {

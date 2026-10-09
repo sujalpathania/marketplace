@@ -18,17 +18,8 @@ export class AuthService {
     password: string;
     studentId: string;
     collegeName: string;
-    studentIdPhoto: File;
   }): Observable<AuthResponse> {
-    const form = new FormData();
-    form.append('fullName', userData.fullName);
-    form.append('email', userData.email);
-    form.append('password', userData.password);
-    form.append('studentId', userData.studentId);
-    form.append('collegeName', userData.collegeName);
-    form.append('studentIdPhoto', userData.studentIdPhoto);
-
-    return this.http.post<AuthResponse>(`${this.apiUrl}/register`, form).pipe(
+    return this.http.post<AuthResponse>(`${this.apiUrl}/register`, userData).pipe(
       tap(res => this.handleAuthSuccess(res))
     );
   }

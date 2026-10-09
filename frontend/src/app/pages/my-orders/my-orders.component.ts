@@ -2,6 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { OrderService } from '../../core/services/order.service';
+import { PhotoRequestService, PhotoRequest } from '../../core/services/photo-request.service';
 import { Order } from '../../models/order.model';
 
 @Component({
@@ -33,6 +34,15 @@ import { Order } from '../../models/order.model';
         >
           My Purchases (Items I Bought)
           <span class="badge-count" *ngIf="purchases.length">{{ purchases.length }}</span>
+        </button>
+
+        <button
+          (click)="activeTab = 'photo-requests'; loadPhotoRequests()"
+          [class.active]="activeTab === 'photo-requests'"
+          class="tab-btn"
+        >
+          📷 Photo Requests
+          <span class="badge-count pending-badge" *ngIf="pendingPhotoCount">{{ pendingPhotoCount }}</span>
         </button>
       </div>
 
@@ -101,6 +111,84 @@ import { Order } from '../../models/order.model';
                 <h4>Seller Details:</h4>
                 <p>👤 <strong>Name:</strong> {{ order.seller?.fullName }}</p>
                 <p>✉️ <strong>Email:</strong> {{ order.seller?.email }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: PHOTO REQUESTS -->
+      <div *ngIf="!loading && activeTab === 'photo-requests'">
+        <div *ngIf="photoRequests.length === 0" class="empty-state">
+          <span class="empty-icon">📷</span>
+          <h3>No Photo Requests</h3>
+          <p>Incoming and outgoing photo requests will appear here.</p>
+        </div>
+
+        <div *ngIf="photoRequests.length > 0" class="orders-list">
+          <div *ngFor="let req of photoRequests; let i = index" class="order-card photo-request-card">
+            <div class="order-img-wrapper">
+              <img [src]="getImageUrl(req.listingImage)" [alt]="req.listingTitle" class="order-img" />
+              <div class="card-overlay" style="position: absolute; bottom: 0; width: 100%; text-align: center; background: rgba(0,0,0,0.6); padding: 4px;">
+                <a [routerLink]="['/listings', req.listingId]" style="color: white; font-size: 0.8rem; text-decoration: none;">View Quick →</a>
+              </div>
+            </div>
+
+            <div class="order-details">
+              <div [class]="'status-tag ' + (req.status === 'Pending' ? 'pending' : 'confirmed')">{{ req.status }}</div>
+              <div class="status-tag" style="background: rgba(99,102,241,0.2); color: #818cf8; margin-left: 0.5rem; border: 1px solid rgba(99,102,241,0.4);">
+                {{ req.isSeller ? 'Incoming Request' : 'My Request (Outgoing)' }}
+              </div>
+              <h3>{{ req.listingTitle }}</h3>
+              <div class="date">Requested on: {{ req.createdAt | date:'medium' }}</div>
+
+              <div class="party-info buyer-box" *ngIf="req.isSeller">
+                <h4>Buyer Details:</h4>
+                <p>👤 <strong>Name:</strong> {{ req.buyerName }}</p>
+                <p>✉️ <strong>Email:</strong> {{ req.buyerEmail }}</p>
+              </div>
+
+              <div class="request-message-box">
+                <h4>💬 Request Message:</h4>
+                <p>{{ req.message }}</p>
+              </div>
+
+              <!-- Upload Section (only for pending, and only for seller) -->
+              <div *ngIf="req.status === 'Pending' && req.isSeller" class="upload-section">
+                <label class="upload-label" [for]="'photo-upload-' + i">
+                  📎 Choose Photos to Upload
+                </label>
+                <input
+                  type="file"
+                  [id]="'photo-upload-' + i"
+                  accept="image/*"
+                  multiple
+                  (change)="onFilesSelected($event, i)"
+                  class="file-input"
+                />
+                <div *ngIf="selectedFiles[i]?.length" class="selected-count">
+                  {{ selectedFiles[i].length }} file(s) selected
+                </div>
+                <button
+                  *ngIf="selectedFiles[i]?.length"
+                  (click)="uploadPhotos(req.id, i)"
+                  [disabled]="uploadingIndex === i"
+                  class="upload-btn"
+                >
+                  <span *ngIf="uploadingIndex !== i">📤 Upload & Fulfill</span>
+                  <span *ngIf="uploadingIndex === i">Uploading...</span>
+                </button>
+              </div>
+
+              <div *ngIf="req.status === 'Fulfilled'" class="fulfilled-badge">
+                ✅ Photos uploaded — request fulfilled.
+              </div>
+
+              <div *ngIf="uploadErrors[i]" class="alert error-alert upload-error">
+                {{ uploadErrors[i] }}
+              </div>
+              <div *ngIf="uploadSuccess[i]" class="alert success-alert upload-success">
+                {{ uploadSuccess[i] }}
               </div>
             </div>
           </div>
@@ -180,6 +268,7 @@ import { Order } from '../../models/order.model';
       border-radius: 8px;
       overflow: hidden;
       flex-shrink: 0;
+      position: relative;
     }
     .order-img {
       width: 100%;
@@ -247,16 +336,91 @@ import { Order } from '../../models/order.model';
       display: block;
       margin-bottom: 1rem;
     }
-    .explore-btn {
-      display: inline-block;
-      margin-top: 1rem;
-      background: #6366f1;
-      color: #fff;
-      padding: 0.6rem 1.2rem;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: 600;
+    .explore-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.4); }
+
+    /* ─── Photo Request Tab ─── */
+    .pending-badge { background: #f59e0b !important; }
+    .status-tag.pending {
+      background: rgba(234,179,8,0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(234,179,8,0.4);
     }
+    .photo-request-card { border-left: 3px solid #6366f1; }
+    .request-message-box {
+      background: rgba(99,102,241,0.08);
+      border: 1px solid rgba(99,102,241,0.2);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-top: 0.75rem;
+    }
+    .request-message-box h4 {
+      margin: 0 0 0.3rem 0;
+      color: #cbd5e1;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+    }
+    .request-message-box p { margin: 0; color: #e2e8f0; font-size: 0.88rem; }
+    .upload-section {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: rgba(15,23,42,0.5);
+      border-radius: 10px;
+      border: 1px dashed rgba(255,255,255,0.12);
+    }
+    .upload-label {
+      color: #a5b4fc;
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+    .file-input {
+      display: block;
+      margin-bottom: 0.5rem;
+      color: #94a3b8;
+      font-size: 0.82rem;
+    }
+    .file-input::file-selector-button {
+      background: #334155;
+      color: #e2e8f0;
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 0.5rem;
+      font-family: inherit;
+    }
+    .selected-count { color: #94a3b8; font-size: 0.82rem; margin-bottom: 0.5rem; }
+    .upload-btn {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.6rem 1.2rem;
+      font-weight: 700;
+      font-family: inherit;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: all 0.25s;
+    }
+    .upload-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(99,102,241,0.45);
+    }
+    .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .fulfilled-badge {
+      margin-top: 0.75rem;
+      background: rgba(16,185,129,0.12);
+      border: 1px solid rgba(16,185,129,0.35);
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      color: #34d399;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .upload-error, .upload-success { margin-top: 0.5rem; font-size: 0.85rem; }
+
     .state-container {
       text-align: center;
       padding: 4rem 1rem;
@@ -278,16 +442,28 @@ import { Order } from '../../models/order.model';
   `]
 })
 export class MyOrdersComponent implements OnInit {
-  activeTab: 'sales' | 'purchases' = 'sales';
+  activeTab: 'sales' | 'purchases' | 'photo-requests' = 'sales';
   sales: Order[] = [];
   purchases: Order[] = [];
   loading = true;
   error = '';
 
-  constructor(private orderService: OrderService) {}
+  // Photo requests state
+  photoRequests: PhotoRequest[] = [];
+  pendingPhotoCount = 0;
+  selectedFiles: { [index: number]: File[] } = {};
+  uploadingIndex: number | null = null;
+  uploadErrors: { [index: number]: string } = {};
+  uploadSuccess: { [index: number]: string } = {};
+
+  constructor(
+    private orderService: OrderService,
+    private photoRequestService: PhotoRequestService
+  ) {}
 
   ngOnInit(): void {
     this.loadOrders();
+    this.loadPhotoRequests();
   }
 
   loadOrders(): void {
@@ -309,6 +485,47 @@ export class MyOrdersComponent implements OnInit {
       error: (err) => {
         this.loading = false;
         this.error = 'Failed to load order history.';
+      }
+    });
+  }
+
+  loadPhotoRequests(): void {
+    this.photoRequestService.getMyRequests().subscribe({
+      next: (requests) => {
+        this.photoRequests = requests;
+        // Pending count only matters for the seller (incoming requests to fulfill)
+        this.pendingPhotoCount = requests.filter(r => r.status === 'Pending' && r.isSeller).length;
+      },
+      error: () => { /* silently fail */ }
+    });
+  }
+
+  onFilesSelected(event: Event, index: number): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files) {
+      this.selectedFiles[index] = Array.from(input.files);
+    }
+  }
+
+  uploadPhotos(requestId: string, index: number): void {
+    const files = this.selectedFiles[index];
+    if (!files || files.length === 0) return;
+
+    this.uploadingIndex = index;
+    this.uploadErrors[index] = '';
+    this.uploadSuccess[index] = '';
+
+    this.photoRequestService.uploadPhotos(requestId, files).subscribe({
+      next: (res) => {
+        this.uploadingIndex = null;
+        this.uploadSuccess[index] = `${res.photos.length} photo(s) uploaded successfully!`;
+        this.selectedFiles[index] = [];
+        // Refresh requests to update status
+        this.loadPhotoRequests();
+      },
+      error: (err) => {
+        this.uploadingIndex = null;
+        this.uploadErrors[index] = err.error?.error || 'Failed to upload photos.';
       }
     });
   }
